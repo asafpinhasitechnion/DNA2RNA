@@ -1,0 +1,40 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints
+
+# Virtual environments
+env/
+venv/
+.venv/
+
+# VSCode settings
+.vscode/
+
+# OS-generated files
+.DS_Store
+Thumbs.db
+
+# Output folders
+/output/
+Output/
+results/
+Results*/
+*.log
+
+# Large files or intermediate results
+*.pkl
+*.h5
+*.csv
+
+# Test or temporary files
+*.tmp
+*.bak
+*~
+
+# Ignore slurm or cluster output
+*.out
+*.err
