@@ -27,7 +27,6 @@ def cross_validate_with_expression(
     - dict: Cross-validation metrics including mean accuracy, ROC AUC, fold results, and feature importance (if available).
     """
     # Prepare data
-    dataframe[sample_column] = dataframe[sample_column].str.split('-').str[1:3].map('-'.join)
     samples = np.array(dataframe[sample_column].unique())
     
     folds = []
@@ -59,17 +58,14 @@ def cross_validate_with_expression(
             print(f"\nFold {fold + 1}/{n_splits}")
             if cv_mode == 'cross_cancer':
                 print(f"Test cancer types: {ct}")
-            print(f"Train samples: {len(train_samples)}, Test samples: {len(test_samples)}")
+            print(f"Train samples: {len(train_index)}, Test samples: {len(test_index)}")
 
         # Train and test samples
         train_samples = samples[train_index]
         test_samples = samples[test_index]
         if use_expression:
             # Exclude test samples from expression data
-            temp_expression_df = expression_df.loc[:, ~expression_df.columns.str.split('-').str[1:3].map('-'.join).isin(test_samples)]
-
-            # Drop unnecessary columns
-            temp_expression_df = temp_expression_df.drop(sample_column, axis=1)
+            temp_expression_df = expression_df.loc[:, ~expression_df.columns.isin(test_samples)]
 
             # Group by 'Cancer_type' and compute the mean for training genes
             temp_expression_df = temp_expression_df.groupby(cancer_columns).mean()
