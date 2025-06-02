@@ -3,6 +3,8 @@ from sklearn.metrics import accuracy_score, roc_auc_score
 from sklearn.model_selection import KFold
 import pandas as pd
 import numpy as np
+from sklearn.model_selection import train_test_split
+
 
 def cross_validate_with_expression(
     dataframe, expression_df, target_column, sample_column, gene_column, model, cancer_columns = 'Cancer_type', use_expression=True,
@@ -88,17 +90,19 @@ def cross_validate_with_expression(
             merged_train_df = dataframe
         
         merged_train_df = merged_train_df.drop([cancer_columns, gene_column], axis=1)
+        merged_train_df = merged_train_df.fillna(0)
 
         # Split into train and test sets
         train_data = merged_train_df[merged_train_df[sample_column].isin(train_samples)].drop(sample_column, axis=1)
         test_data = merged_train_df[merged_train_df[sample_column].isin(test_samples)].drop(sample_column, axis=1)
 
-        X_train, y_train = train_data.drop(target_column, axis=1).values, train_data[target_column].values
-        X_test, y_test = test_data.drop(target_column, axis=1).values, test_data[target_column].values
+        X_train, y_train = train_data.drop(target_column, axis=1), train_data[target_column].values
+        X_test, y_test = test_data.drop(target_column, axis=1), test_data[target_column].values
 
         if verbose > 1:
             print(f"Train label distribution: {np.bincount(y_train.astype(int))}")
             print(f"Test label distribution: {np.bincount(y_test.astype(int))}")
+
 
         # Scale the features
         scaler = StandardScaler()
@@ -154,4 +158,95 @@ def cross_validate_with_expression(
         "mean_accuracy": mean_accuracy,
         "mean_roc_auc": mean_roc_auc,
         "feature_importances": all_feature_importances
+    }
+
+
+
+def evaluate_train_test_split(
+    dataframe,
+    expression_df,
+    target_column,
+    sample_column,
+    gene_column,
+    model,
+    cancer_columns='Cancer_type',
+    use_expression=True,
+    test_size=0.2,
+    random_state=42,
+    verbose=0
+):
+    """
+    Evaluate model performance with a single train-test split.
+
+    Parameters:
+    - dataframe (pd.DataFrame): Main data including features and target.
+    - expression_df (pd.DataFrame): Gene expression data.
+    - target_column (str): Column name of target variable.
+    - sample_column (str): Column indicating the sample identifiers.
+    - gene_column (str): Column for gene IDs (matches expression data).
+    - model: ML model instance with fit/predict interface.
+    - cancer_columns (str): Column name of cancer types.
+    - use_expression (bool): Whether to merge expression values.
+    - test_size (float): Fraction of data to hold out for testing.
+    - random_state (int): Random seed.
+    - verbose (int): Verbosity level.
+
+    Returns:
+    - dict: Accuracy, ROC AUC, and optionally feature importances.
+    """
+
+    samples = dataframe[sample_column].unique()
+    train_samples, test_samples = train_test_split(
+        samples, test_size=test_size, random_state=random_state
+    )
+
+    if use_expression:
+        temp_expression_df = expression_df.loc[:, ~expression_df.columns.isin(test_samples)]
+        temp_expression_df = temp_expression_df.groupby(cancer_columns).mean().reset_index().melt(
+            id_vars=cancer_columns, var_name=gene_column, value_name='Mean_Expression')
+
+        temp_expression_df[gene_column] = temp_expression_df[gene_column].astype(str)
+        dataframe[gene_column] = dataframe[gene_column].astype(str)
+
+        merged_df = dataframe.merge(temp_expression_df, on=[cancer_columns, gene_column])
+    else:
+        merged_df = dataframe.copy()
+
+    merged_df = merged_df.drop([cancer_columns, gene_column], axis=1)
+
+    train_data = merged_df[merged_df[sample_column].isin(train_samples)].drop(sample_column, axis=1)
+    test_data = merged_df[merged_df[sample_column].isin(test_samples)].drop(sample_column, axis=1)
+
+    X_train, y_train = train_data.drop(target_column, axis=1).values, train_data[target_column].values
+    X_test, y_test = test_data.drop(target_column, axis=1).values, test_data[target_column].values
+
+    if verbose > 1:
+        print(f"Train label distribution: {np.bincount(y_train.astype(int))}")
+        print(f"Test label distribution: {np.bincount(y_test.astype(int))}")
+
+    scaler = StandardScaler()
+    X_train = scaler.fit_transform(X_train)
+    X_test = scaler.transform(X_test)
+
+    model.fit(X_train, y_train)
+    y_pred = model.predict(X_test)
+    y_pred_prob = model.predict_proba(X_test) if hasattr(model, 'predict_proba') else y_pred
+
+    accuracy = accuracy_score(y_test, y_pred)
+    try:
+        roc_auc = roc_auc_score(y_test, y_pred_prob)
+    except ValueError:
+        roc_auc = None
+
+    feature_importance = None
+    if hasattr(model, "feature_importances_"):
+        feature_importance = dict(zip(train_data.drop(target_column, axis=1).columns, model.feature_importances_))
+
+    if verbose:
+        print(f"Test Accuracy: {accuracy:.4f}, ROC AUC: {roc_auc if roc_auc is not None else 'N/A'}")
+
+    return {
+        "accuracy": accuracy,
+        "roc_auc": roc_auc,
+        "feature_importances": feature_importance
     }

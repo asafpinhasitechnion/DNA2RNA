@@ -1,3 +1,4 @@
+import json
 import os
 import argparse
 import joblib
@@ -8,15 +9,16 @@ from sklearn.tree import DecisionTreeClassifier
 from sklearn.svm import LinearSVC
 from xgboost import XGBClassifier
 from lightgbm import LGBMClassifier
-from Cross_Validation import cross_validate_with_expression
+from Cross_Validation import cross_validate_with_expression, evaluate_train_test_split
 from ML_models import PytorchModelWrapper, SklearnModelWrapper
 from Utils import *
+from Feature_selection import RFE_feature_selection
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description="Run DNA-to-RNA mutation prediction")
 
-    parser.add_argument("--model", type=str, default="XGBoost",
-                        choices=["LogisticRegression", "RandomForest", "DecisionTree", "SVM", "XGBoost", "LightGBM"] + [f"NeuralNet_{i+1}" for i in range(3)])
+    parser.add_argument("--model", type=str, default="NeuralNet",
+                        choices=["LogisticRegression", "RandomForest", "DecisionTree", "SVM", "XGBoost", "LightGBM", "NeuralNet"])
     parser.add_argument("--cancer_type", type=str, default="all")
     parser.add_argument("--input-folder", type=str, default=r"data")
     parser.add_argument("--output-folder", type=str, default=r"../results")
@@ -27,6 +29,8 @@ def parse_arguments():
     parser.add_argument("--n_estimators", type=int, default=None)
     parser.add_argument("--max_depth", type=int, default=None)
     parser.add_argument("--epochs", type=int, default=None)
+    parser.add_argument('--layers', type=str, default='64,32', help="Comma-separated hidden layer sizes, e.g., '128,64,32'")
+
     parser.add_argument("--dont_use_expression", action="store_true")
 
     if len(os.sys.argv) > 1:
@@ -48,10 +52,15 @@ def main(args):
         suffix_parts.append(f"epochs{args.epochs}")
     if args.cv_mode != 'normal':
         suffix_parts.append(f"{args.cv_mode}")
-    suffix_parts.append(f"{args.model}")
+    model_name = args.model
+    if model_name == 'NeuralNet':
+        if not args.layers:
+            raise ValueError("For NeuralNet, you must specify --layers with a comma-separated list of layer sizes.")
+        model_name = model_name+'_'+args.layers.replace(',', '_')
+    suffix_parts.append(f"{model_name}")
     suffix_parts.append(f"{args.task}")
 
-    suffix = "_" + "_".join(suffix_parts) if suffix_parts else ""
+    suffix = "__" + "__".join(suffix_parts) if suffix_parts else ""
     task = args.task
     if task != 'binary':
         raise ValueError(f"Only 'binary' is currently supported.")
@@ -75,10 +84,10 @@ def main(args):
             n_estimators=args.n_estimators or 100,
             learning_rate=args.learning_rate or 0.1,
             max_depth=args.max_depth,
-            random_state=42), task=task)
+            random_state=42, verbosity = args.verbosity), task=task)
     }
 
-    nn_architectures = [ [64, 32], [128, 64, 32], [32, 16] ]
+    
     input_folder = args.input_folder
     data_folder = r"C:\Users\KerenYlab.MEDICINE\OneDrive - Technion\Asaf\Data\RNA\TCGA\Xena\tcga_xena_data"
     mutation_data_path = os.path.join(input_folder, 'TCGA_mutations.csv')
@@ -113,14 +122,17 @@ def main(args):
 
     input_dim = filtered_df.shape[1] - 3
 
-    for i, arch in enumerate(nn_architectures):
-        models[f"NeuralNet_{i+1}"] = PytorchModelWrapper(
-            input_dim=input_dim,
-            layers=arch,
-            task='binary',
-            learning_rate=args.learning_rate or 0.005,
-            epochs=args.epochs or 25
-        )
+    nn_architecture = None
+    if args.model == 'NeuralNet' and args.layers:
+        nn_architecture = list(map(int, args.layers.split(',')))
+    
+    models["NeuralNet"] = PytorchModelWrapper(
+        input_dim=input_dim,
+        layers=nn_architecture,
+        task='binary',
+        learning_rate=args.learning_rate or 0.005,
+        epochs=args.epochs or 25
+    )
 
     if args.model not in models:
         raise ValueError(f"Model {args.model} not defined.")
@@ -135,6 +147,34 @@ def main(args):
     for folder in [fi_folder, fold_folder, mean_results]:
         os.makedirs(folder, exist_ok=True)
 
+    if hasattr(model, "feature_importances_"):
+        fs_results = RFE_feature_selection(
+            model=model,
+            mutation_df=filtered_df.copy(),
+            expression_df=expression_df.copy(),
+            target_column='Appears_in_rna',
+            sample_column='Tumor_Sample_Barcode',
+            gene_column='Hugo_Symbol',
+            cancer_column='Cancer_type',
+            step=1,
+            test_size=0.2,
+            random_state=42,
+        )
+
+        scores, n_features_list, features_dict = fs_results
+        # Save n_features_list and scores as CSV
+        df_scores = pd.DataFrame({
+            "n_features": n_features_list,
+            "roc_auc": scores
+        })
+
+        df_scores.to_csv(os.path.join(results_folder, 'rfe_auc_scores.csv'), index=False)
+
+        # Save features_dict as JSON
+        with open(os.path.join(results_folder, 'rfe_selected_features.json'), "w") as f:
+            json.dump(features_dict, f, indent=4)
+
+    print(f"Running cross-validation...")
     results = cross_validate_with_expression(
         dataframe=filtered_df,
         expression_df=expression_df,
@@ -148,6 +188,7 @@ def main(args):
         random_state=42,
         verbose=args.verbosity
     )
+
 
     metrics = {
         "Model": args.model,
