@@ -41,7 +41,7 @@ class SklearnModelWrapper(BaseEstimator):
 
 class PytorchModelWrapper(BaseEstimator):
     def __init__(self, input_dim, layers, task='binary', output_dim=None,
-                 learning_rate=0.001, batch_size=32, epochs=50, device=None):
+                 learning_rate=0.001, batch_size=32, epochs=50, device=None, verbose=0):
         self.input_dim = input_dim
         self.layers = layers
         self.task = task
@@ -54,6 +54,7 @@ class PytorchModelWrapper(BaseEstimator):
         self.model = self._build_model()
         self.criterion = self._get_criterion()
         self.optimizer = optim.Adam(self.model.parameters(), lr=self.learning_rate)
+        self.verbose = verbose
 
     def _build_model(self):
         model = nn.Sequential()
@@ -101,7 +102,9 @@ class PytorchModelWrapper(BaseEstimator):
         dataloader = DataLoader(dataset, batch_size=self.batch_size, shuffle=True)
 
         self.model.train()
-        for _ in range(self.epochs):
+        for epoch in range(self.epochs):
+            if self.verbose:
+                print(f"Epoch {epoch + 1}/{self.epochs}")
             for X_batch, y_batch in dataloader:
                 self.optimizer.zero_grad()
                 y_pred = self.model(X_batch).squeeze()

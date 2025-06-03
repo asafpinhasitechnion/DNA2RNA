@@ -109,6 +109,8 @@ def main(args):
         )
         print(f"Caching expression data to '{cache_path}'...")
         joblib.dump(expression_df, cache_path)
+    
+    expression_df.to_csv(os.path.join(input_folder, 'expression_data.csv'))
 
 
     if args.cancer_type.lower() == "all":
@@ -119,6 +121,9 @@ def main(args):
         if filtered_df.empty:
             raise ValueError(f"No data available for cancer type {args.cancer_type}.")
         cancer_type = args.cancer_type
+
+    if model_name in ['SVM', 'LogisticRegression', 'NeuralNet', 'DecisionTree']:
+        filtered_df = filtered_df.fillna(0)
 
     input_dim = filtered_df.shape[1] - 3
 
@@ -131,7 +136,8 @@ def main(args):
         layers=nn_architecture,
         task='binary',
         learning_rate=args.learning_rate or 0.005,
-        epochs=args.epochs or 25
+        epochs=args.epochs or 25,
+        verbose=args.verbosity,
     )
 
     if args.model not in models:

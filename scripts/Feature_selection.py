@@ -39,7 +39,7 @@ def merge_expression(mutation_df, expression_df, cancer_columns, gene_column, te
 def RFE_feature_selection(model, mutation_df, expression_df, target_column, sample_column, gene_column, cancer_column, step=1, test_size=0.2, random_state=42):
     
     if isinstance(model, SklearnModelWrapper):
-        model = copy.deepcopy(model.model)
+        model = copy.deepcopy(model)
     
     # chosen_features = [cancer_column, gene_column, target_column, sample_column, 'Tissue_lung', 'Transcript_Position','Start_position','COSMIC_total_alterations_in_gene','i_tumor_f', 'Tissue_skin', 'gc_content']
     mutation_df = merge_expression(mutation_df, expression_df, cancer_column, gene_column)
@@ -72,7 +72,8 @@ def RFE_feature_selection(model, mutation_df, expression_df, target_column, samp
         model.fit(X_train[remaining_features], y_train)
         
         # Evaluate on test
-        y_pred = model.predict_proba(X_test[remaining_features])[:, 1]
+        proba = model.predict_proba(X_test[remaining_features])
+        y_pred = proba[:, 1] if proba.ndim == 2 else proba
         auc = roc_auc_score(y_test, y_pred)
         
         scores.append(auc)
